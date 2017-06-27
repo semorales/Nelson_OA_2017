@@ -1,0 +1,227 @@
+---
+title: "Ocean acidification affects microbial community and invertebrate settlement on biofilms:Fig1"
+author: "Sergio E. Morales"
+date: "1 June 2017"
+---
+
+```{r Load libraries and data}
+library(phyloseq)  
+library(ggplot2)
+library(plyr)
+library(scales)
+library(reshape)
+library(RColorBrewer)
+library(grid)
+library(Rmisc)
+
+uzdir <- "/file path/Github/"
+map_file <- paste("/file path/Github/", "Nelson_etal_map.txt", sep = "")
+```
+
+```{r Import data}
+bmsd <- import_qiime_sample_data(map_file)
+```
+
+Plot Biofilm weight by treatment and time
+```{r Plot Biofilm weight by treatment and time}
+#subset data to only relevant rows
+fig1_data <- bmsd[1:17, ]
+
+#Calculate mean standard deviation, standard error of the mean, and a (default 95%) confidence interval
+#The mean will be calculated from the Wet_weight_mg column by all the variables listed in groupvars.
+
+SSE_ww_mg <- summarySE(fig1_data, measurevar="Wet_weight_mg", groupvars=c("pH_Treatment","Biofilm_Age_days"))
+SSE_ww_mg
+SSE_ww_mg$Biofilm_Age_days <- factor(SSE_ww_mg$Biofilm_Age_days)
+
+
+fig1_data$Biofilm_Age_days<-as.factor(fig1_data$Biofilm_Age_days)
+fig1_data$pH_Treatment<-as.factor(fig1_data$pH_Treatment)
+fig1_data_df<-data.frame(fig1_data)
+
+
+#Calculate ANOVA/Tukeys HSD for Wet_weight_mg by pH and Age 
+aov.Wet_weight_mg.pH = aov(Wet_weight_mg ~ pH_Treatment*Biofilm_Age_days, data = fig1_data_df)
+summary(aov.Wet_weight_mg.pH)
+TukeyHSD(aov.Wet_weight_mg.pH)
+
+#Plot Fig 1a
+
+pd <- position_dodge(0.1)
+Fig1a<-ggplot(SSE_ww_mg, aes(Biofilm_Age_days, Wet_weight_mg, fill=pH_Treatment)) + 
+    geom_bar(position=position_dodge(), stat="identity") +
+    geom_errorbar(aes(ymin=Wet_weight_mg-se, ymax=Wet_weight_mg+se),
+                  width=.2,                    # Width of the error bars
+                  position=position_dodge(.9)) + scale_fill_grey() + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    xlab("Biofilm Age (Days)") +    
+    ylab(expression(paste("Wet Weight Biomass ", "(", mg, "/", cm^2, ")", sep=""))) +
+   scale_y_continuous(expand = c(0, 0), limits = c(0, 38))  +  
+    theme_bw() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    theme(text=element_text(size=14)) + 
+  theme(legend.justification = c(0, 1), legend.position = c(0.01, 0.98)) + guides(fill=guide_legend(title="pH"))
+Fig1a
+ggsave("/file path/Github/Figure 1/Fig1a.pdf",width=4.5,height=3)
+```
+
+
+Plot chl_a_mg by treatment and time
+```{r Plot Fig 1b chl_a_mg by treatment and time}
+#subset data
+fig1_b_data <- subset(bmsd, chl_a_mg >0)
+#subset to days 28 and 41 only
+fig1_b_data <- subset(fig1_b_data, Biofilm_Age_days == 28 | Biofilm_Age_days == 41)
+#replace 28 days with 27
+fig1_b_data$Biofilm_Age_days[fig1_b_data$Biofilm_Age_days==28] <- 27
+
+
+#The mean will be calculated from the chl_a_mg column by all the variables listed in groupvars.
+SSE_chl <- summarySE(fig1_b_data, measurevar="chl_a_mg", groupvars=c("pH_Treatment","Biofilm_Age_days"))
+SSE_chl
+SSE_chl$Biofilm_Age_days <- factor(SSE_chl$Biofilm_Age_days)
+
+
+fig1_b_data$Biofilm_Age_days<-as.factor(fig1_b_data$Biofilm_Age_days)
+fig1_b_data$pH_Treatment<-as.factor(fig1_b_data$pH_Treatment)
+fig1_b_data_df<-data.frame(fig1_b_data)
+
+#Calculate ANOVA/Tukeys HSD for chl_a_mg by pH and Age 
+aov.chl_a_mg.pH = aov(chl_a_mg ~ pH_Treatment*Biofilm_Age_days, data = fig1_b_data_df)
+summary(aov.chl_a_mg.pH)
+TukeyHSD(aov.chl_a_mg.pH)
+
+#Plot Fig1b
+pd <- position_dodge(0.1)
+Fig1b<-ggplot(SSE_chl, aes(Biofilm_Age_days, chl_a_mg, fill=pH_Treatment)) + 
+    geom_bar(position=position_dodge(), stat="identity") +
+    geom_errorbar(aes(ymin=chl_a_mg-se, ymax=chl_a_mg+se),
+                  width=.2,                    # Width of the error bars
+                  position=position_dodge(.9)) + scale_fill_grey() + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    xlab("Biofilm Age (Days)") +    
+    ylab(expression(paste("Chlorophyll a ", "(", mg, "/", cm^2, ")", sep=""))) +
+       scale_y_continuous(expand = c(0, 0), limits = c(0, 1.3))  +        
+    theme_bw() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    theme(text=element_text(size=14)) + 
+  theme(legend.justification = c(0, 1), legend.position = c(0.01, 0.98)) + guides(fill=guide_legend(title="pH"))
+Fig1b
+ggsave("/file path/Github/Figure 1/Fig1b.pdf",width=4.5,height=3)
+```
+
+Plot carotenoid_mg by treatment and time
+
+```{r Plot Fig 1c carotenoid_mg by treatment and time}
+#subset data
+fig1_c_data <- subset(bmsd, carotenoid_mg >0)
+#subset to days 28 and 41 only
+fig1_c_data <- subset(fig1_c_data, Biofilm_Age_days == 28 | Biofilm_Age_days == 41)
+#replace 28 days with 27
+fig1_c_data$Biofilm_Age_days[fig1_c_data$Biofilm_Age_days==28] <- 27
+
+
+#The mean will be calculated from the carotenoid_mg column by all the variables listed in groupvars.
+SSE_car <- summarySE(fig1_c_data, measurevar="carotenoid_mg", groupvars=c("pH_Treatment","Biofilm_Age_days"))
+SSE_car
+SSE_car$Biofilm_Age_days <- factor(SSE_car$Biofilm_Age_days)
+
+fig1_c_data$Biofilm_Age_days<-as.factor(fig1_c_data$Biofilm_Age_days)
+fig1_c_data$pH_Treatment<-as.factor(fig1_c_data$pH_Treatment)
+fig1_c_data_df<-data.frame(fig1_c_data)
+
+
+#Calculate ANOVA/Tukeys HSD for carotenoid_mg by pH and Age 
+
+aov.carotenoid_mg.pH = aov(carotenoid_mg ~ pH_Treatment*Biofilm_Age_days, data = fig1_c_data_df)
+summary(aov.carotenoid_mg.pH)
+TukeyHSD(aov.carotenoid_mg.pH)
+
+#Plot 1c
+pd <- position_dodge(0.1)
+Fig1c<-ggplot(SSE_car, aes(Biofilm_Age_days, carotenoid_mg, fill=pH_Treatment)) + 
+    geom_bar(position=position_dodge(), stat="identity") +
+    geom_errorbar(aes(ymin=carotenoid_mg-se, ymax=carotenoid_mg+se),
+                  width=.2,                    # Width of the error bars
+                  position=position_dodge(.9)) + scale_fill_grey() + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    xlab("Biofilm Age (Days)") +    
+    ylab(expression(paste("Carotenoid ", "(", mg, "/", cm^2, ")", sep=""))) +
+       scale_y_continuous(expand = c(0, 0), limits = c(0, 0.13))  +        
+    theme_bw() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    theme(text=element_text(size=14)) + 
+  theme(legend.justification = c(0, 1), legend.position = c(0.01, 0.98)) + guides(fill=guide_legend(title="pH"))
+Fig1c
+ggsave("/file path/Github/Figure 1/Fig1c.pdf",width=4.5,height=3)
+```
+
+
+Plot Total macroorganism, Cirripedia spp. and Harpacticoida spp. abundance on 30-day biofilms
+developed from 23 Sep to 23 Oct 2015 in flow-through seawater system. Error bars represent ± 1 standard
+
+```{r Plot Fig 1d Total macroorganism}
+#subset data
+fig1_d_data <- bmsd[42:53, ]
+
+#The mean will be calculated from the carotenoid_mg column by all the variables listed in groupvars.
+SSE_total <- summarySE(fig1_d_data, measurevar="total", groupvars=c("pH_Treatment"))
+SSE_total
+SSE_Cir <- summarySE(fig1_d_data, measurevar="Cirripedia", groupvars=c("pH_Treatment"))
+SSE_Cir
+SSE_Har <- summarySE(fig1_d_data, measurevar="harpacticoida", groupvars=c("pH_Treatment"))
+SSE_Har
+#files were joined in excel and new organism category added
+SSE_All <- read.csv("/file path/Github/Figure 1/summarySE_abundance.csv")
+
+fig1_d_data$Biofilm_Age_days<-as.factor(fig1_d_data$Biofilm_Age_days)
+fig1_d_data$pH_Treatment<-as.factor(fig1_d_data$pH_Treatment)
+fig1_d_data_df<-data.frame(fig1_d_data)
+
+#stats Total
+aov.total.pH = aov(total ~ pH_Treatment, data = fig1_d_data_df)
+summary(aov.total.pH)
+TukeyHSD(aov.total.pH)
+
+#stats Cirripedia
+aov.Cirripedia.pH = aov(Cirripedia ~ pH_Treatment, data = fig1_d_data_df)
+summary(aov.Cirripedia.pH)
+TukeyHSD(aov.Cirripedia.pH)
+
+#stats Harpacticoida
+aov.harpacticoida.pH = aov(harpacticoida ~ pH_Treatment, data = fig1_d_data_df)
+summary(aov.harpacticoida.pH)
+TukeyHSD(aov.harpacticoida.pH)
+
+#Plot Fig 1d
+pd <- position_dodge(0.1)
+Fig1d<-ggplot(SSE_All, aes(Organism, Abundance, fill=pH_Treatment)) + 
+    geom_bar(position=position_dodge(), stat="identity") +
+    geom_errorbar(aes(ymin=Abundance-se, ymax=Abundance+se),
+                  width=.2,                    # Width of the error bars
+                  position=position_dodge(.9)) + scale_fill_grey() + theme_bw() + theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +   
+    ylab("Abundance") +
+  xlab("") +
+   scale_y_continuous(expand = c(0, 0), limits = c(0, 33))  +  
+    theme_bw() +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+    theme(text=element_text(size=14)) + 
+  theme(legend.justification = c(0, 1), legend.position = c(0.01, 0.98)) + guides(fill=guide_legend(title="pH"))
+Fig1d
+
+ggsave("/file path/Github/Figure 1/Fig1d.pdf",width=4.5,height=3)
+```
+
+
+```{r Multiplot}
+pdf("/file path/Github/Figure 1/Fig1_multi.pdf",width=4.5,height=13.83)
+multiplot(Fig1a,Fig1b, Fig1c,Fig1d, cols=1)
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+

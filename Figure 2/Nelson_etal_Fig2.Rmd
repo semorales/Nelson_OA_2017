@@ -1,0 +1,742 @@
+---
+title: "Ocean acidification affects microbial community and invertebrate settlement on biofilms:Fig2"
+author: "Sergio E. Morales"
+date: "26 June 2017"
+---
+
+###Pre-processing summary
+  All data was processed in Qiime, clustered at 97% sequence similarity and assigned taxonomy against SILVA 119. Libraries were subsampled and rarefied (to 8000 reads) ten times.  OTU tables generated were ten combined and the new data used for downstream analysis in R as shown below.
+
+
+```{r Load libraries and relative abundance data for invertebrates}
+
+library(ggplot2)
+library(vegan)
+library(MASS)
+library(ade4)
+library(grid)
+
+taxa <- read.csv("/file path/Github/Figure 2/Tax_rel_ab.csv",fill = TRUE, header = TRUE, sep = ",")
+dim(taxa)
+row.names(taxa) <- taxa$SampleID
+taxa <- taxa[, -1]
+data.prop <- taxa/rowSums(taxa)
+data.prop[1:3, 1:3]
+
+# Calculate Shannon index and save results to table
+shann <- diversity(taxa)  
+shann
+write.table(shann, file = "/file path/Github/Figure 2/shann.txt", sep = "\t") #added shannon results to data frame rename MD below.
+
+MD <- read.csv("/file path/Github/Figure 2/Fig2_taxa_MD.csv")
+
+#Calculate ANOVA/Tukeys HSD for invertebrate Shannon diversity by pH
+aov.Shan_inv.pH = aov(Shann ~ pH_Treatment, data = MD)
+summary(aov.Shan_inv.pH)
+TukeyHSD(aov.Shan_inv.pH)
+```
+
+###NMDS ordination using invertebrate taxa abundance
+```{r Make NMDS plot macro taxa, results='markup'}
+
+inv_MDS <- metaMDS(data.prop)
+inv_MDS
+inv_MDS <- metaMDS(data.prop, previous = inv_MDS)
+inv_MDS
+plot(inv_MDS)
+
+NMDS = data.frame(MDS1 = inv_MDS$points[,1], MDS2 = inv_MDS$points[,2],pH_Treatment=MD$pH_Treatment)
+
+ord<-ordiellipse(inv_MDS, NMDS$pH_Treatment, display = "sites", 
+                 kind = "se", conf = 0.95, label = T)
+
+veganCovEllipse <-
+  function(cov, center = c(0,0), scale = 1, npoints = 100)
+  {
+    theta <- (0:npoints) * 2 * pi/npoints
+    Circle <- cbind(cos(theta), sin(theta))
+    Q <- chol(cov, pivot = TRUE)
+    o <- attr(Q, "pivot")
+    t(center + scale * t(Circle %*% Q[,o]))
+  }
+
+df_ell <- data.frame()
+for(g in levels(NMDS$pH_Treatment)){
+  df_ell <- rbind(df_ell, cbind(as.data.frame(with(NMDS[NMDS$pH_Treatment==g,],
+                                                   veganCovEllipse(ord[[g]]$cov,ord[[g]]$center,ord[[g]]$scale)))
+                                ,pH_Treatment=g))
+}
+
+
+my_grob = grobTree(textGrob("Stress = 0.02", x=0.6,  y=0.95, hjust=0,
+                            gp=gpar(col="Black", fontsize=14, fontface="italic"))) 
+
+
+#Plot Fig 2a
+Fig2a_macro<-ggplot(data = NMDS, aes(MDS1, MDS2)) + geom_point(size=5,aes(color = pH_Treatment)) +
+  geom_path(data=df_ell, aes(x=NMDS1, y=NMDS2,colour=pH_Treatment), size=1, linetype=2)+
+  theme_bw() +
+  theme(
+    plot.background = element_blank()
+    ,panel.grid.major = element_blank()
+    ,panel.grid.minor = element_blank()
+    ,panel.background = element_blank()
+    ,axis.text.x  = element_text( vjust=0.5, size=12)
+  )+
+  theme(axis.title.x = element_text(face="bold",size=14),
+        axis.text.x = element_text(colour = "black", vjust=1, hjust = 1, size=14),
+        axis.text.y = element_text(colour = "black", size=14),
+        axis.title.y = element_text(face="bold", size=14),
+        legend.title = element_text(size=14),
+        legend.text = element_text(size = 14),
+        legend.position="right",
+        #Manipulating the facet features
+        strip.text.x = element_text(size=12, face="bold"),
+        strip.text.y = element_text(size=12, face="bold"),
+        strip.background = element_rect(colour="black")) + 
+  guides(fill = guide_legend(ncol = 1, title.hjust = 0.4)) + annotation_custom(my_grob) + scale_colour_grey() + guides(colour=guide_legend(title="pH"))
+Fig2a_macro
+
+ggsave("/file path/Github/Figure 2/Fig2A.pdf",units = c("in"), width=6,height=4)
+
+#Plot stressplot
+stressplot(inv_MDS)
+dev.copy(pdf, "/file path/Github/Figure 2/FigS1.pdf", width=8,height=4)
+dev.off()
+
+```
+
+#Calculate ANOSIM for invertebrate community against pH treatment
+```{r ANOSIM macro}
+macro.dist <- vegdist(data.prop)
+attach(MD)
+macro.ano <- anosim(macro.dist, pH_Treatment)
+summary(macro.ano)
+plot(macro.ano)
+dev.copy(pdf, "/file path/Github/Figure 2/ANOSIM_macro.pdf", width=6,height=4)
+dev.off()
+```
+
+```{r}
+(.packages())
+detachAllPackages <- function() {
+  
+  basic.packages <- c("package:stats","package:graphics","package:grDevices","package:utils","package:datasets","package:methods","package:base")
+  
+  package.list <- search()[ifelse(unlist(gregexpr("package:",search()))==1,TRUE,FALSE)]
+  
+  package.list <- setdiff(package.list,basic.packages)
+  
+  if (length(package.list)>0)  for (package in package.list) detach(package, character.only=TRUE)
+  
+}
+
+detachAllPackages()
+```
+
+```{r Load libraries and amplicon data}
+library(phyloseq)  
+library(ggplot2)
+library(plyr)
+library(scales)
+library(reshape)
+library(RColorBrewer)
+library(grid)
+library(vegan)
+library(ggrepel)
+
+otutable_biom_file <- paste("/file path/Github/", "merged_otu_table.biom", sep = "")
+map_file <- paste("/file path/Github/Figure 2/", "Nelson_etal_Fig2_map.txt", sep = "")
+```
+
+```{r Create phyloseq object}
+biom_otu_tax <- import_biom(otutable_biom_file)
+bmsd <- import_qiime_sample_data(map_file)
+biom_otu_tax
+
+KN_phyloseq <- merge_phyloseq(biom_otu_tax, bmsd)
+KN_phyloseq
+sample_sums(KN_phyloseq)
+```
+
+#####Create average result for multiple rarefaction by transforming data using (divide by 10) and check counts per sample
+```{r Create average result for multiple rarefaction by transforming data using (divide by 10), results='markup'}
+KN_phyloseq = transform_sample_counts(KN_phyloseq, function(x) x/10)
+sample_sums(KN_phyloseq)
+```
+
+##### Round and confirm count number
+```{r Round and confirm count number, results='markup'}
+KN_phyloseq = transform_sample_counts(KN_phyloseq, round)
+sample_sums(KN_phyloseq)
+KN_phyloseq = prune_samples(sample_sums(KN_phyloseq)>=1, KN_phyloseq)
+sample_sums(KN_phyloseq)
+```
+
+#####Prune taxa with less than 1 count
+```{r  Save original file and create new file with only present (no zeroes) taxa, results='markup', echo=TRUE}
+
+#Create new file with only present (no zeroes) taxa
+KN_phyloseq = prune_taxa(taxa_sums(KN_phyloseq) > 1, KN_phyloseq)
+any(sample_sums(KN_phyloseq) == 0)
+any(sample_sums(KN_phyloseq) > 0)
+sum(taxa_sums(KN_phyloseq) > 0)
+any(sample_sums(KN_phyloseq) < 1)
+sum(taxa_sums(KN_phyloseq) < 1)
+```
+
+###Compare sequences per sample or OTU
+```{r Compare sequences per sample or OTU}
+readsumsdf = data.frame(nreads = sort(taxa_sums(KN_phyloseq), TRUE), sorted = 1:ntaxa(KN_phyloseq), 
+                        type = "OTU")
+readsumsdf = rbind(readsumsdf, data.frame(nreads = sort(sample_sums(KN_phyloseq), 
+                                                        TRUE), sorted = 1:nsamples(KN_phyloseq), type = "Samples"))
+title = "Total number of reads"
+p = ggplot(readsumsdf, aes(x = sorted, y = nreads)) + geom_bar(stat = "identity")
+p + ggtitle(title) + scale_y_log10() + facet_wrap(~type, 1, scales = "free")
+```
+
+```{r}
+sample_variables(KN_phyloseq)
+```
+
+```{r Attached OTU ID}
+tax_table(KN_phyloseq) <- cbind(tax_table(KN_phyloseq), OTU=taxa_names(KN_phyloseq))
+```
+
+```{r Rename Ranks}
+colnames(tax_table(KN_phyloseq)) = c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species", "OTU")
+```
+
+```{r Calculate Alpha diversity and anova for all micro data}
+alpha_summary_all <- estimate_richness(KN_phyloseq, measures = c("Shannon", "Observed"))
+#combine with metadata
+alpha_meta_all <- data.frame(alpha_summary_all, sample_data(KN_phyloseq))
+alpha_meta_all$Biofilm_Age_days<-as.factor(alpha_meta_all$Biofilm_Age_days)
+
+#Calculate ANOVA/Tukeys HSD for Shannon by pH and Age 
+aov.Shan_micro.pH_age = aov(Shannon ~ pH*Biofilm_Age_days, data = alpha_meta_all)
+summary(aov.Shan_micro.pH_age)
+TukeyHSD(aov.Shan_micro.pH_age)
+
+#Calculate ANOVA/Tukeys HSD for Richness by pH and Age 
+aov.Rich_micro.pH_age = aov(Observed ~ pH*Biofilm_Age_days, data = alpha_meta_all)
+summary(aov.Rich_micro.pH_age)
+TukeyHSD(aov.Rich_micro.pH_age)
+```
+
+
+### Plot NMDS ordination Bray Distance for all micro data
+```{r NMDS ordination, results='markup'}
+NMDSord <- ordinate(KN_phyloseq, "NMDS", "bray")
+NMDSord
+
+
+sample_data(KN_phyloseq)$Biofilm_Age_days = factor( get_variable(KN_phyloseq, "Biofilm_Age_days"))
+       
+plot_ordination(KN_phyloseq, NMDSord, type = "samples", color = "pH_Treatment", shape = "Biofilm_Age_days") + geom_point(size = 5) + geom_jitter()
+
+sampleplot = plot_ordination(KN_phyloseq, NMDSord, type = "samples", color = "pH_Treatment", shape = "Biofilm_Age_days") 
+
+my_grob = grobTree(textGrob("Stress = 0.11", x=0.6,  y=0.95, hjust=0,
+                            gp=gpar(col="Black", fontsize=14, fontface="italic")))
+
+
+
+
+NMDS_all = sampleplot + geom_point(size = 5) + theme(text = element_text(size = 16)) + theme(axis.title.x = element_text(face="bold",size=16),
+                                          axis.text.x = element_text(angle=0, colour = "black", vjust=1, hjust = 1, size=14),
+                                          axis.text.y = element_text(colour = "black", size=14),
+                                          axis.title.y = element_text(face="bold",size=14),
+                                          plot.title = element_text(size = 18),
+                                          legend.title =element_text(size = 14),
+                                          legend.text = element_text(size = 14),
+                                          legend.position="right",
+                                          legend.key.size = unit(0.50, "cm"),
+                                          strip.text.x = element_text(size=12, face="bold"),
+                                          strip.text.y = element_text(size=12, face="bold"),
+                                          panel.background = element_blank(),
+                                          panel.border = element_rect(fill = NA, colour = "black"),
+                                          strip.background = element_rect(colour="black")) + annotation_custom(my_grob)
+
+NMDS_all_plot= NMDS_all + geom_jitter() 
+NMDS_all_plot
+ggsave("/file path/Github/Figure 2/FigS2.pdf",units = c("in"), width=6,height=4)
+
+stressplot(NMDSord)
+dev.copy(pdf, "/file path/Github/Figure 2/FigS4.pdf", width=8,height=4)
+dev.off()
+
+```
+
+#####Subset samples by Age and only keep 27 day old data
+```{r Subset samples by young biofilm only}
+Age27_phyloseq = subset_samples(KN_phyloseq, Biofilm_Age_days == "27")
+```
+
+### Plot NMDS ordination Bray Distance (only 27days)
+```{r NMDS ordination for young biofilm, results='markup'}
+NMDSord27 <- ordinate(Age27_phyloseq, "NMDS", "bray")
+NMDSord27
+
+
+plot_ordination(Age27_phyloseq, NMDSord27, type = "samples", color = "pH_Treatment") + geom_point(size = 5) + geom_jitter()
+baseplot = plot_ordination(Age27_phyloseq, NMDSord27, type = "samples", color = "pH_Treatment") 
+
+my_grob = grobTree(textGrob("Stress = 0.05", x=0.6,  y=0.95, hjust=0,
+                            gp=gpar(col="Black", fontsize=14, fontface="italic")))
+
+
+
+
+NMDSord27_plot = baseplot + geom_point(size = 5) + theme(text = element_text(size = 16)) + theme(axis.title.x = element_text(face="bold",size=16),
+                                                                                      axis.text.x = element_text(angle=0, colour = "black", vjust=1, hjust = 1, size=14),
+                                                                                      axis.text.y = element_text(colour = "black", size=14),
+                                                                                      axis.title.y = element_text(face="bold",size=14),
+                                                                                      plot.title = element_text(size = 18),
+                                                                                      legend.title =element_text(size = 14),
+                                                                                      legend.text = element_text(size = 14),
+                                                                                      legend.position="right",
+                                                                                      legend.key.size = unit(0.50, "cm"),
+                                                                                      strip.text.x = element_text(size=12, face="bold"),
+                                                                                      strip.text.y = element_text(size=12, face="bold"),
+                                                                                      panel.background = element_blank(),
+                                                                                      panel.border = element_rect(fill = NA, colour = "black"),
+                                                                                      strip.background = element_rect(colour="black")) + annotation_custom(my_grob)
+
+Fig2b= NMDSord27_plot + geom_jitter()# pass this if you want labels + geom_text_repel(aes(label = SampleID), size = 5) 
+Fig2b_v1
+ggsave("/file path/Github/Figure 2/Fig2B_only27days.pdf",units = c("in"), width=6,height=4)
+
+stressplot(NMDSord27)
+dev.copy(pdf, "/file path/Github/Figure 2/FigS5.pdf", width=8,height=4)
+dev.off()
+
+```
+
+
+### Plot NMDS ordination Bray Distance with ellipses (only 27days)
+```{r NMDS ordination with ellipses only young biofilms, results='markup'}
+
+points <- as.data.frame(NMDSord27$points)
+
+NMDS = data.frame(MDS1 = points$MDS1, MDS2 = points$MDS2)
+NMDS$pH <- get_variable(Age27_phyloseq, "pH")
+plot(NMDSord27$points, col = NMDS$pH)
+
+ord<-ordiellipse(NMDSord27, NMDS$pH, display = "sites", 
+                 kind = "se", conf = 0.95, label = T)
+
+veganCovEllipse <-
+  function(cov, center = c(0,0), scale = 1, npoints = 100)
+  {
+    theta <- (0:npoints) * 2 * pi/npoints
+    Circle <- cbind(cos(theta), sin(theta))
+    Q <- chol(cov, pivot = TRUE)
+    o <- attr(Q, "pivot")
+    t(center + scale * t(Circle %*% Q[,o]))
+  }
+
+df_ell <- data.frame()
+for(g in levels(NMDS$pH)){
+  df_ell <- rbind(df_ell, cbind(as.data.frame(with(NMDS[NMDS$pH==g,],
+                                                   veganCovEllipse(ord[[g]]$cov,ord[[g]]$center,ord[[g]]$scale)))
+                                ,pH=g))
+}
+
+my_grob = grobTree(textGrob("Stress = 0.05", x=0.6,  y=0.95, hjust=0,
+                            gp=gpar(col="Black", fontsize=14, fontface="italic")))
+
+
+Fig2b_ellipses<-ggplot(data = NMDS, aes(MDS1, MDS2)) + geom_point(size=5,aes(color = pH)) +
+  geom_path(data=df_ell, aes(x=NMDS1, y=NMDS2,colour=pH), size=1, linetype=2)+
+  theme_bw() +
+  theme(
+    plot.background = element_blank()
+    ,panel.grid.major = element_blank()
+    ,panel.grid.minor = element_blank()
+    ,panel.background = element_blank()
+    ,axis.text.x  = element_text( vjust=0.5, size=12)
+  )+
+  theme(axis.title.x = element_text(face="bold",size=14),
+        axis.text.x = element_text(colour = "black", vjust=1, hjust = 1, size=14),
+        axis.text.y = element_text(colour = "black", size=14),
+        axis.title.y = element_text(face="bold", size=14),
+        legend.title = element_text(size=14),
+        legend.text = element_text(size = 14),
+        legend.position="right",
+        #Manipulating the facet features
+        strip.text.x = element_text(size=12, face="bold"),
+        strip.text.y = element_text(size=12, face="bold"),
+        strip.background = element_rect(colour="black")) + # Black rectangle around facet title
+  guides(fill = guide_legend(ncol = 1, title.hjust = 0.4)) + annotation_custom(my_grob) + scale_colour_grey() + guides(colour=guide_legend(title="pH"))
+Fig2b_ellipses
+
+ggsave("/file path/Github/Figure 2/Fig2B.pdf",units = c("in"), width=6,height=4)
+
+stressplot(NMDSord27)
+dev.copy(pdf, "/file path/Github/Figure 2/Fig2B_ellipse_stress.pdf", width=8,height=4)
+dev.off()
+
+```
+
+```{r ANOSIM or ADONIS micro data}
+#all data
+df = as(sample_data(KN_phyloseq), "data.frame")
+d = distance(KN_phyloseq, "bray")
+pH_Age_all_adonis = adonis2(d ~ pH_all*Age_all, df)
+pH_Age_all_adonis
+
+
+#27days
+pH_27days = get_variable(Age27_phyloseq, "pH")
+pH_27days_ano = anosim(distance(Age27_phyloseq, "bray"), pH_27days)
+summary(pH_27days_ano)
+pH_27days_ano$signif
+pH_27days_ano$statistic
+plot(pH_27days_ano)
+dev.copy(pdf, "/file path/Github/Figure 2/ANOSIM_micro.pdf", width=6,height=4)
+dev.off()
+```
+
+
+```{r Multi plot function}
+multiplot <- function(..., plotlist = NULL, file, cols = 1, layout = NULL) {
+  require(grid)
+
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  if (is.null(layout)) {
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                 ncol = cols, nrow = ceiling(numPlots/cols))
+}
+
+if (numPlots == 1) {
+print(plots[[1]])
+
+} else {
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+for (i in 1:numPlots) {
+  matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+  print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                  layout.pos.col = matchidx$col))
+ }
+}
+ }
+```
+
+```{r Multiplot NMDS}
+pdf("/file path/Github/Figure 2/Fig2_multinmds.pdf",width=6,height=8)
+multiplot(Fig2a_macro,Fig2b_ellipses, cols=1)
+dev.off()
+```
+
+```{r extract taxonomy info as matrix for 27 days only}
+taxonomy = tax_table(Age27_phyloseq, errorIfNULL=FALSE)
+if( !is.null(taxonomy) ){
+  taxonomy = data.frame(as(taxonomy, "matrix"))
+} 
+
+otus <- otu_table(Age27_phyloseq)
+otus_mat <- otus@.Data
+```
+
+###Determine number of clusters for KN using elbow graph 27 days only
+```{r Determine number of clusters for KN using elbow graph 27 days only}
+# Determine number of clusters
+wss <- (nrow(otus_mat)-1)*sum(apply(otus_mat,2,var))
+for (i in 2:15) wss[i] <- sum(kmeans(otus_mat, 
+                                     centers=i)$withinss)
+plot(1:15, wss, type="b", xlab="Number of Clusters",
+     ylab="Within groups sum of squares")
+```
+#####Results suggest 2-4 clusters
+Ran simprof for 27 days only choosing expected cluster number by NMDS results and elbow grpah, plot as color coded tree with Bray Curtis Distance.  
+
+###Test clustering for KN using SIMPROF 27 days only
+```{r SIMPROF tree for KN with samples clustered by color 27 days only}
+library(clustsig)
+library(vegan)
+spistSIMPROF <- simprof(otus_mat, num.expected=4, num.simulated=3, method.cluster='average', method.distance='braycurtis', method.transform='identity', alpha=0.05, sample.orientation='column', silent=FALSE)
+
+simprof.plot(spistSIMPROF, leafcolors=NA, plot=TRUE, fill=TRUE, leaflab="perpendicular", siglinetype=1)
+```
+#####Results suggest ~2 main branches
+Used a second clustering method which allows for both bootstrapping, and confidence determination.  
+
+
+###Pvclust tree for KN using bray distance and including p values for each node. [AU (approximately unbiased) BP (bootstrap probability)]. Boxes mark clusters with 90% confidence 27 days only
+```{r Cluster tree for KN with box marking 90percent confidence 27 days only}
+library(pvclust)
+library(magrittr)
+library(dendextend)
+library("devtools")
+source_url("https://raw.githubusercontent.com/nielshanson/mp_tutorial/master/taxonomic_analysis/code/pvclust_bcdist.R")
+fit <- pvclust(otus_mat, method.hclust="ward", method.dist="bray–curtis", n=1000)
+
+plot(fit) 
+
+dend <- as.dendrogram(fit)
+fit %>% as.dendrogram %>% 
+  plot(main = "Cluster dendrogram with AU/BP values (%)\n reproduced plot with dendrogram")
+fit %>% text
+fit %>% pvrect
+pvrect(fit, alpha=.90)
+
+labels(dend)
+
+require(colorspace)
+
+pH<-as.factor(bmsd$pH_Treatment)
+pH_Treatment<-data.frame(bmsd$pH_Treatment)
+colnames(pH_Treatment) <- "pH_Treatment"
+col<-pH
+
+
+colors_to_use <- as.numeric(pH)
+colors_to_use
+colors_to_use <- colors_to_use[order.dendrogram(dend)]
+colors_to_use
+
+labels_colors(dend) <- colors_to_use
+labels_colors(dend)
+labels_colors(dend) <- rainbow_hcl(3)[as.numeric(col)]
+
+labels_colors(dend) 
+plot(dend) 
+legend("topleft", legend = levels(pH), fill = rainbow_hcl(3), cex=0.75)
+pvrect(fit, alpha=.90)
+dev.copy(pdf, "/file path/Github/Figure 2/FigS6.pdf", width=12,height=6)
+dev.off()
+```
+#####Results at 90% suggest 2 clusters.
+
+
+```{r Calculate Alpha diversity and anova for micro using young data}
+alpha_summary <- estimate_richness(Age27_phyloseq, measures = c("Shannon", "Observed"))
+#combine with metadata
+alpha_meta <- data.frame(alpha_summary, sample_data(Age27_phyloseq))
+
+#Calculate ANOVA/Tukeys HSD for Shannon by pH
+aov.Shan_micro.pH = aov(Shannon ~ pH, data = alpha_meta)
+summary(aov.Shan_micro.pH)
+TukeyHSD(aov.Shan_micro.pH)
+
+#Calculate ANOVA/Tukeys HSD for Richness by pH
+aov.Rich_micro.pH = aov(Observed ~ pH, data = alpha_meta)
+summary(aov.Rich_micro.pH)
+TukeyHSD(aov.Rich_micro.pH)
+```
+
+
+```{r Plot Shannon for invertebrates}
+macro_alpha<-ggplot(MD, aes(x = pH_Treatment, y=Shann, color=pH_Treatment)) + theme(text = element_text(size = 14)) + geom_boxplot()
+
+Fig2c<-macro_alpha + theme_bw() +
+  theme(
+    plot.background = element_blank()
+    ,panel.grid.major = element_blank()
+    ,panel.grid.minor = element_blank()
+    ,panel.background = element_blank()
+    ,axis.text.x  = element_text( vjust=0.5, size=12)
+  ) + theme(axis.title.x = element_text(face="bold",size=14),
+        axis.text.x = element_text(colour = "black", vjust=1, hjust = 1, size=14, angle = 0),
+        axis.text.y = element_text(colour = "black", size=14),
+        axis.title.y = element_text(face="bold", size=14),
+        #Manipulating the facet features
+        strip.text.x = element_blank(),
+        strip.background = element_blank(),
+        strip.text.y = element_blank(),
+        legend.position="none") + scale_colour_grey() +
+    xlab("pH") +    
+    ylab("Shannon") 
+Fig2c
+
+ggsave("/file path/Github/Figure 2/Fig2c.pdf",width=4,height=4)
+```
+
+
+
+```{r Plot Shannon micro data only 27 days}
+micro_alpha= plot_richness(Age27_phyloseq, x = "pH", color="pH", measures = c("Shannon")) +theme(text = element_text(size = 14)) + geom_boxplot() 
+  
+  
+Fig2d<-micro_alpha + theme_bw() +
+  theme(
+    plot.background = element_blank()
+    ,panel.grid.major = element_blank()
+    ,panel.grid.minor = element_blank()
+    ,panel.background = element_blank()
+    ,axis.text.x  = element_text( vjust=0.5, size=12)
+  ) + theme(axis.title.x = element_text(face="bold",size=14),
+        axis.text.x = element_text(colour = "black", vjust=1, hjust = 1, size=14, angle = 0),
+        axis.text.y = element_text(colour = "black", size=14),
+        axis.title.y = element_text(face="bold", size=14),
+        #Manipulating the facet features
+        strip.text.x = element_blank(),
+        strip.background = element_blank(),
+        strip.text.y = element_blank(),
+        legend.position="none") + scale_colour_grey() +
+    xlab("pH") +    
+    ylab("Shannon") 
+Fig2d
+
+ggsave("/file path/Github/Figure 2/Fig2d.pdf",width=4,height=4)
+```
+
+```{r Multiplot alpha}
+pdf("/file path/Github/Figure 2/alpha.pdf",width=4,height=8)
+multiplot(Shan_macro, Alpha27, cols=1)
+dev.off()
+
+```
+
+###Rel abundance for macroorganisms
+```{r Stacked bar rel abund macro}
+library(MASS)
+library(ade4)
+library(reshape)
+library(Rmisc)
+
+taxa <- read.csv("/file path/Github/Figure 2/Macro_abund.csv",fill = TRUE, header = TRUE, sep = ",")
+dim(taxa)
+row.names(taxa) <- taxa$SampleID
+taxa <- taxa[, -1]
+taxa_rel_ab <- taxa/rowSums(taxa)
+taxa_rel_ab[1:3, 1:3]
+
+
+var <- read.csv("/file path/Github/Figure 2/var.csv",fill = TRUE, header = TRUE, sep = ",")
+row.names(var) <- var$SampleID
+
+tax_ra_df <- merge(taxa_rel_ab,var,by="row.names")
+
+tax_ra_df <- melt(tax_ra_df, id=c("SampleID","pH_Treatment"))
+names(tax_ra_df)[names(tax_ra_df)=="variable"] <- "Taxa"
+tax_ra_df = tax_ra_df[-(1:12),]
+as.numeric(tax_ra_df$value)
+names(tax_ra_df)[names(tax_ra_df)=="value"] <- "Relative Abundance"
+as.factor(tax_ra_df$pH_Treatment)
+as.factor(tax_ra_df$Taxa)
+write.csv(tax_ra_df, file="/file path/Github/Figure 2/tax_ra_df.csv", row.names=TRUE)
+
+tax_ra_df <- read.csv("/file path/Github/Figure 2/tax_ra_df.csv",fill = TRUE, header = TRUE, sep = ",")
+
+
+SSE_macro <- summarySE(tax_ra_df, measurevar="Relative.Abundance", groupvars=c("pH_Treatment","Taxa"))
+SSE_macro
+write.csv(tax_ra_df, file="/file path/Github/Figure 2/tax_SSE_macro_df.csv", row.names=TRUE, col.names=NA)
+
+
+d= ggplot(SSE_macro,aes(x=pH_Treatment,y=Relative.Abundance,fill=Taxa))+ geom_bar(stat="identity",position="fill") +  scale_y_continuous(labels = percent_format())
+
+c= d+ xlab("pH")
+
+b= c+ ylab("Relative Abundance")
+
+a= b+ scale_fill_manual(name="Taxa",values = c("grey26", "royalblue", "chartreuse3",  "red", "darkorange","cyan2", "darkgreen", "deepskyblue", "mediumorchid3","#89C5DA", "#DA5724", "#74D944", "#C84248", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030",   "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "#330000", "#CCCCFF", "#3399FF", "#66FFFF", "#B5EAAA","#FFE87C"))
+
+z= a+ theme(axis.title.x = element_text(face="bold",size=14),
+            axis.text.x = element_text(angle=0, colour = "black", vjust=1, hjust = 1, size=14),
+            axis.text.y = element_text(colour = "black", size=14),
+            axis.title.y = element_text(face="bold",size=14),
+            plot.title = element_text(size = 14),
+            legend.title =element_text(face="bold",size = 14),
+            legend.text = element_text(size = 14),
+            legend.position="right",
+            legend.key.size = unit(0.50, "cm"),
+            strip.text.x = element_text(size=12, face="bold"),
+            strip.text.y = element_text(size=12, face="bold"),
+            panel.background = element_blank(),
+            panel.border = element_rect(fill = NA, colour = "black"),
+            strip.background = element_rect(colour="black"))
+
+Fig2e= z+ guides(fill = guide_legend(reverse = TRUE, ncol=1))
+Fig2e
+
+ggsave("/file path/Github/Figure 2/Fig2e.pdf",width=6,height=4)
+```
+
+
+### Plot micro phylum by pH_Treatment percent transformed 27 days only
+###OTUs at Phylum level relative abundance with only abundant groups
+```{r OTUs at Phylum level rel abund with no OTU breaks only abundant groups}
+require("genefilter")
+
+Age27_phylum_glom <- tax_glom(Age27_phyloseq, taxrank = "Phylum")
+tax_table(Age27_phylum_glom) =gsub("D_1__", "", tax_table(Age27_phylum_glom))
+
+Age27_phylum_glom  = transform_sample_counts(Age27_phylum_glom, function(x) x / sum(x) )
+Age27_phylum_glom_df  = psmelt(Age27_phylum_glom)
+flist    <- filterfun(kOverA(8, 0.0001))
+PNG.logi <- filter_taxa(Age27_phylum_glom, flist)
+PNG.trim <- filter_taxa(Age27_phylum_glom, flist, TRUE)
+Age27_phylum_glom_MA <- identical(PNG.trim, prune_taxa(PNG.logi, Age27_phylum_glom)) 
+Age27_phylum_glom_MA <- identical(sum(PNG.logi), ntaxa(PNG.trim))
+Age27_phylum_glom_MA <- filter_taxa(Age27_phylum_glom, flist, TRUE)
+
+speciesList <- tapply(sample_names(Age27_phylum_glom_MA), get_variable(Age27_phylum_glom_MA, "pH"), c)
+speciesPhyseq <- lapply(speciesList, prune_samples, Age27_phylum_glom_MA)
+speciesOTUtable <- lapply(speciesPhyseq,otu_table)
+speciesAvg <- lapply(speciesOTUtable,rowMeans)
+pooledOTUtable = t(do.call(rbind,speciesAvg))
+pooledOTUtable = data.frame(OTU=row.names(pooledOTUtable),pooledOTUtable)
+
+TT = tax_table(Age27_phylum_glom_MA)
+TT = TT[, which(apply(!apply(TT, 2, is.na), 2, any))]
+tdf = data.frame(TT, OTU = taxa_names(Age27_phylum_glom_MA))
+pOTUtax = merge(pooledOTUtable, tdf, by.x = "OTU")
+str(pOTUtax)
+pOTU = data.frame(pOTUtax,SeqTotal = rowSums(pOTUtax[,2:4]))
+pOTU = pOTU[order(-pOTU$SeqTotal),]
+
+sum(pOTU$SeqTotal)/sum(pOTU$SeqTotal)
+
+pOTU.phylum =pOTU[,c(2:4,6)]
+melt.phylum = melt(pOTU.phylum,id.vars="Phylum")
+colnames(melt.phylum)[2]="OTU"
+agg.phylum=aggregate(.~Phylum+OTU,melt.phylum,sum)
+revalue(agg.phylum$OTU, c("X7.4" = "7.4")) -> agg.phylum$OTU
+revalue(agg.phylum$OTU, c("X7.8" = "7.8")) -> agg.phylum$OTU
+
+d= ggplot(agg.phylum,aes(x=OTU,y=value,fill=Phylum)) +
+  geom_bar(stat="identity",position="fill") +
+  scale_y_continuous(labels = percent_format()) 
+c= d+ xlab("pH")
+
+b= c+ ylab("Relative Abundance")
+
+a= b+ scale_fill_manual(name="Phylum",values = c("grey26", "royalblue", "chartreuse3",  "red", "darkorange","cyan2", "darkgreen", "deepskyblue", "mediumorchid3","#89C5DA", "#DA5724", "#74D944", "#C84248", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030",   "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "#330000", "#CCCCFF", "#3399FF", "#66FFFF", "#B5EAAA","#FFE87C"))
+
+z= a+ theme(axis.title.x = element_text(face="bold",size=14),
+            axis.text.x = element_text(angle=0, colour = "black", vjust=1, hjust = 1, size=14),
+            axis.text.y = element_text(colour = "black", size=14),
+            axis.title.y = element_text(face="bold",size=14),
+            plot.title = element_text(size = 14),
+            legend.title =element_text(face="bold",size = 14),
+            legend.text = element_text(size = 14),
+            legend.position="right",
+            legend.key.size = unit(0.50, "cm"),
+            strip.text.x = element_text(size=12, face="bold"),
+            strip.text.y = element_text(size=12, face="bold"),
+            panel.background = element_blank(),
+            panel.border = element_rect(fill = NA, colour = "black"),
+            strip.background = element_rect(colour="black"))
+
+Fig2f= z+ guides(fill = guide_legend(reverse = TRUE, ncol=1))
+Fig2f
+
+ggsave("/file path/Github/Figure 2/Fig2f.pdf",width=6.5,height=4)
+```
+
+```{r Multiplot Taxa plot}
+pdf("/file path/Github/Figure 2/Fig2_multitaxa.pdf",width=6,height=8)
+multiplot(Fig2e,Fig2f, cols=1)
+dev.off()
+
+```

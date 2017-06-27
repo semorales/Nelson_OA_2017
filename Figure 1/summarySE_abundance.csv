@@ -1,0 +1,10 @@
+pH_Treatment,N,Abundance,sd,se,ci,Organism
+7.4,4,9.75,5.439056,2.719528,8.654752,Total abundance
+7.8,4,23.5,3,1.5,4.773669,Total abundance
+Ambient,4,28,6.683313,3.341656,10.634642,Total abundance
+7.4,4,0.75,1.5,0.75,2.386835,Cirripedia 
+7.8,4,9.75,5.909033,2.954516,9.40259,Cirripedia 
+Ambient,4,18.75,2.362908,1.181454,3.759914,Cirripedia 
+7.4,4,6,4.082483,2.041241,6.496141,Harpacticoida 
+7.8,4,9.75,2.872281,1.436141,4.570441,Harpacticoida 
+Ambient,4,6.25,5.439056,2.719528,8.654752,Harpacticoida 

@@ -1,0 +1,354 @@
+---
+title: "Ocean acidification affects microbial community and invertebrate settlement on biofilms:Fig3"
+author: "Sergio E. Morales"
+date: "26 June 2017"
+---
+
+### Phyloseq file used here was generated as described in Figure 2 rmd file.
+```{r Load libraries}
+library(phyloseq)  
+library(ggplot2)
+library(plyr)
+library(scales)
+library(reshape)
+library(RColorBrewer)
+library(grid)
+library(dplyr)
+```
+
+
+```{r Multi plot function}
+multiplot <- function(..., plotlist = NULL, file, cols = 1, layout = NULL) {
+  require(grid)
+
+  plots <- c(list(...), plotlist)
+
+  numPlots = length(plots)
+
+  if (is.null(layout)) {
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                 ncol = cols, nrow = ceiling(numPlots/cols))
+}
+
+if (numPlots == 1) {
+print(plots[[1]])
+
+} else {
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+
+for (i in 1:numPlots) {
+  matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+
+  print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                  layout.pos.col = matchidx$col))
+ }
+}
+ }
+```
+
+
+###Identify OTUs correlated to change in pH 27 days only
+```{r Identify OTUs correlated to change in pH 27 days only}
+
+taxonomy = tax_table(Age27_phyloseq, errorIfNULL=FALSE)
+if( !is.null(taxonomy) ){
+  taxonomy = data.frame(as(taxonomy, "matrix"))
+} 
+
+otus <- otu_table(Age27_phyloseq)
+otus_mat <- otus@.Data
+
+variable <- sample_data(Age27_phyloseq)
+variable <- as.data.frame(variable, rownames.force = NA)
+
+
+#Spearmans correlation on pH plus extraction of p.values and Rho
+results <- apply(otus_mat, 1 , function(x)  cor.test(variable$pH_Treatment,x, method = "spearman")[c(3,4)])
+results_df <- as.data.frame(results, rownames.force = NA)
+
+p.vals <- unname((unlist(results)))[c(seq(from = 1, to = 7628, by = 2))]
+p.vals_df <- as.data.frame(p.vals, rownames.force = NA)
+
+Rho_pH <- unname((unlist(results)))[c(seq(from = 2, to = 7628, by = 2))]
+Rho_df <- as.data.frame(Rho_pH, rownames.force = NA)
+
+Spearmans = cbind(as(tax_table(taxonomy), "matrix"), as(Rho_df, "data.frame"))
+Spearmans = cbind(as(Spearmans, "data.frame"), as(p.vals_df, "data.frame"))
+
+colnames(Spearmans) = c("Domain", "Phylum", "Class", "Order", "Family", "Genus", "Species", "OTU", "Rho_pH", "p.value")
+
+
+Spearmans_sort <- arrange(Spearmans, Rho_pH) 
+Spearman_mostsig <- subset(Spearmans_sort, p.value < 0.051 & Rho_pH >= 0.5 | p.value < 0.051 & Rho_pH <= -0.5, na.rm=TRUE)
+write.table(Spearman_mostsig, file="/file path/Github/Figure 3/TableS4.txt", row.names=TRUE, col.names=NA, sep="\t")
+```
+
+
+#For visual comparison I subsetted the full data by significantly different OTUs  
+```{r subset phyloseq by significant only}
+keepTaxa_Spear <- Spearman_mostsig$OTU
+print(keepTaxa_Spear)
+SigTax_pH <- subset_taxa(Age27_phyloseq, OTU %in% keepTaxa_Spear)
+tax_table(SigTax_pH) =gsub("D_1__", "", tax_table(SigTax_pH))
+tax_table(SigTax_pH) =gsub("D_2__", "", tax_table(SigTax_pH))
+tax_table(SigTax_pH) =gsub("D_5__", "", tax_table(SigTax_pH))
+
+#Combine all OTUs and collect Phylum data
+SigTax_pH_phylum_glom <- tax_glom(SigTax_pH, taxrank = 'Phylum')
+dat_SigTax_pH_phylum_glom <- psmelt(SigTax_pH_phylum_glom)
+
+dat_SigTax_pH_phylum_glom <- dat_SigTax_pH_phylum_glom[order(dat_SigTax_pH_phylum_glom$Phylum),]
+```
+
+
+###Plot significantly different OTUs at Phylum level (absolute abundance)
+```{r Phylum abundance for significantly different OTUs}
+p = ggplot(dat_SigTax_pH_phylum_glom, aes(x = pH, y = Abundance, fill = Phylum)) +
+  geom_bar(stat = "identity", width = 0.85) + theme_bw() + theme(legend.position = "right", strip.background = element_blank())
+p + scale_fill_manual(values = c("grey26", "royalblue", "gold",  "red", "cyan2", "darkorange", "darkgreen", "deepskyblue", "mediumorchid3","#89C5DA", "#74D944", "#DA5724", "#C84248", "#673770", "#D3D93E", "#508578", "#D7C1B1", "navyblue","#689030",   "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "#330000", "#CCCCFF", "#3399FF", "#66FFFF", "#B5EAAA","#FFE87C", "grey26", "royalblue", "gold",  "red", "cyan2", "darkorange", "darkgreen", "deepskyblue", "mediumorchid3","#89C5DA", "#74D944", "#DA5724", "#C84248", "#673770", "#D3D93E", "#508578"))
+```
+
+```{r Phylum abundance for significantly different OTUs}
+# glom by phylum
+speciesList <- tapply(sample_names(SigTax_pH_phylum_glom), get_variable(SigTax_pH_phylum_glom, "pH"), c)
+speciesPhyseq <- lapply(speciesList, prune_samples, SigTax_pH_phylum_glom)
+speciesOTUtable <- lapply(speciesPhyseq,otu_table)
+speciesAvg <- lapply(speciesOTUtable,rowMeans)
+pooledOTUtable = t(do.call(rbind,speciesAvg))
+pooledOTUtable = data.frame(OTU=row.names(pooledOTUtable),pooledOTUtable)
+TT = tax_table(SigTax_pH_phylum_glom)
+TT = TT[, which(apply(!apply(TT, 2, is.na), 2, any))]
+tdf = data.frame(TT, OTU = taxa_names(SigTax_pH_phylum_glom))
+pOTUtax = merge(pooledOTUtable, tdf, by.x = "OTU")
+pOTU = data.frame(pOTUtax,SeqTotal = rowSums(pOTUtax[,2:4]))
+pOTU.Phylum =pOTU[,c(2:4,6)]
+melt.Phylum = melt(pOTU.Phylum,id.vars="Phylum")
+colnames(melt.Phylum)[2]="pH"
+agg.Phylum=aggregate(.~Phylum+pH,melt.Phylum,sum)
+revalue(agg.Phylum$pH, c("X7.4" = "7.4")) -> agg.Phylum$pH
+revalue(agg.Phylum$pH, c("X7.8" = "7.8")) -> agg.Phylum$pH
+
+
+FigS9a<-ggplot(agg.Phylum,aes(x=pH,y=value,fill=Phylum)) +
+  geom_bar(stat = "identity", position="fill", width = 0.85) + 
+  scale_y_continuous(labels = percent_format())+
+  xlab("pH") +
+  ylab("Relative abundance") +
+  scale_fill_manual(values = c("grey26", "royalblue", "chartreuse3",  "red", "darkorange","gold", "darkgreen", "deepskyblue", "mediumorchid3","#89C5DA", "#DA5724", "#74D944", "#C84248", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "slateblue4", "tan4", "tomato4", "steelblue", "springgreen4", "snow4", "slategray2", "plum1", "yellow", "sienna", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "#FFFFFF", "#0000EE")) +
+  theme_bw() +
+  theme(
+    plot.background = element_blank()
+    ,panel.grid.major = element_blank()
+    ,panel.grid.minor = element_blank()
+    ,panel.background = element_blank()
+    ,axis.text.x  = element_text(angle=90, vjust=0.5, size=12)
+  )+
+  theme(axis.title.x = element_text(face="bold",size=14),
+        axis.text.x = element_text(angle=0, colour = "black", vjust=1, hjust = 1, size=14),
+        axis.text.y = element_text(colour = "black", size=14),
+        axis.title.y = element_text(face="bold", size=14),
+        legend.title = element_text(size=14),
+        legend.text = element_text(size = 12),
+        legend.position="right",
+        #Manipulating the facet features
+        strip.text.x = element_text(size=12, face="bold"),
+        strip.text.y = element_text(size=12, face="bold"),
+        strip.background = element_rect(colour="black")) + # Black rectangle around facet title
+  guides(fill = guide_legend(ncol = 1, title.hjust = 0.4))
+FigS9a
+
+ggsave("/file path/Github/Figure 3/FigS9a.pdf",width=6.5,height=4)
+```
+
+
+```{r Class abundance for significantly different OTUs}
+# glom by class
+SigTax_pH_class_glom <- tax_glom(SigTax_pH, taxrank = 'Class')
+
+speciesList <- tapply(sample_names(SigTax_pH_class_glom), get_variable(SigTax_pH_class_glom, "pH"), c)
+speciesPhyseq <- lapply(speciesList, prune_samples, SigTax_pH_class_glom)
+speciesOTUtable <- lapply(speciesPhyseq,otu_table)
+speciesAvg <- lapply(speciesOTUtable,rowMeans)
+pooledOTUtable = t(do.call(rbind,speciesAvg))
+pooledOTUtable = data.frame(OTU=row.names(pooledOTUtable),pooledOTUtable)
+TT = tax_table(SigTax_pH_class_glom)
+TT = TT[, which(apply(!apply(TT, 2, is.na), 2, any))]
+tdf = data.frame(TT, OTU = taxa_names(SigTax_pH_class_glom))
+pOTUtax = merge(pooledOTUtable, tdf, by.x = "OTU")
+pOTU = data.frame(pOTUtax,SeqTotal = rowSums(pOTUtax[,2:4]))
+pOTU.Class =pOTU[,c(2:4,7)]
+melt.Class = melt(pOTU.Class,id.vars="Class")
+colnames(melt.Class)[2]="pH"
+agg.Class=aggregate(.~Class+pH,melt.Class,sum)
+revalue(agg.Class$pH, c("X7.4" = "7.4")) -> agg.Class$pH
+revalue(agg.Class$pH, c("X7.8" = "7.8")) -> agg.Class$pH
+
+
+FigS9b<-ggplot(agg.Class,aes(x=pH,y=value,fill=Class)) +
+  geom_bar(stat = "identity", position="fill", width = 0.85) + 
+  scale_y_continuous(labels = percent_format())+
+  xlab("pH") +
+  ylab("Relative abundance") +
+  scale_fill_manual(values = c("grey26", "royalblue", "chartreuse3",  "red", "darkorange","gold", "darkgreen", "deepskyblue", "mediumorchid3","#89C5DA", "#DA5724", "#74D944", "#C84248", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "slateblue4", "tan4", "tomato4", "steelblue", "springgreen4", "snow4", "slategray2", "plum1", "yellow", "sienna", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "#FFFFFF", "#0000EE")) +
+  theme_bw() +
+  theme(
+    plot.background = element_blank()
+    ,panel.grid.major = element_blank()
+    ,panel.grid.minor = element_blank()
+    ,panel.background = element_blank()
+    ,axis.text.x  = element_text(angle=90, vjust=0.5, size=12)
+  )+
+  theme(axis.title.x = element_text(face="bold",size=14),
+        axis.text.x = element_text(angle=0, colour = "black", vjust=1, hjust = 1, size=14),
+        axis.text.y = element_text(colour = "black", size=14),
+        axis.title.y = element_text(face="bold", size=14),
+        legend.title = element_text(size=14),
+        legend.text = element_text(size = 12),
+        legend.position="right",
+        #Manipulating the facet features
+        strip.text.x = element_text(size=12, face="bold"),
+        strip.text.y = element_text(size=12, face="bold"),
+        strip.background = element_rect(colour="black")) + # Black rectangle around facet title
+  guides(fill = guide_legend(ncol = 2, title.hjust = 0.4))
+FigS9b
+
+ggsave("/file path/Github/Figure 3/FigS9b.pdf",width=8.5,height=5)
+```
+
+
+```{r Genus abundance for significantly different OTUs}
+# glom by Genus and pick only top 20
+SigTax_pH_Genus_glom <- tax_glom(SigTax_pH, taxrank = 'Genus')
+
+speciesList <- tapply(sample_names(SigTax_pH_Genus_glom), get_variable(SigTax_pH_Genus_glom, "pH"), c)
+speciesPhyseq <- lapply(speciesList, prune_samples, SigTax_pH_Genus_glom)
+speciesOTUtable <- lapply(speciesPhyseq,otu_table)
+speciesAvg <- lapply(speciesOTUtable,rowMeans)
+pooledOTUtable = t(do.call(rbind,speciesAvg))
+pooledOTUtable = data.frame(OTU=row.names(pooledOTUtable),pooledOTUtable)
+TT = tax_table(SigTax_pH_Genus_glom)
+TT = TT[, which(apply(!apply(TT, 2, is.na), 2, any))]
+tdf = data.frame(TT, OTU = taxa_names(SigTax_pH_Genus_glom))
+pOTUtax = merge(pooledOTUtable, tdf, by.x = "OTU")
+pOTU = data.frame(pOTUtax,SeqTotal = rowSums(pOTUtax[,2:4]))
+pOTU = pOTU[order(-pOTU$SeqTotal),]
+pOTUtop = pOTU[1:20,]
+
+sum(pOTUtop$SeqTotal)/sum(pOTU$SeqTotal)
+
+#check naming of Genera to make sure they are informative otherwise save, fix and replace
+write.table(pOTUtop, file = "/file path/Github/Figure 3/top20_genera.txt", sep = "\t")
+pOTUtop <- read.table("/file path/Github/Figure 3/top20_genera_rev.csv", sep = ",", header = TRUE)
+
+pOTU.Genus = pOTUtop[,c(3:5,11)]
+melt.Genus = melt(pOTU.Genus,id.vars="Genus")
+colnames(melt.Genus)[2]="pH"
+agg.Genus=aggregate(.~Genus+pH,melt.Genus,sum)
+revalue(agg.Genus$pH, c("X7.4" = "7.4")) -> agg.Genus$pH
+revalue(agg.Genus$pH, c("X7.8" = "7.8")) -> agg.Genus$pH
+
+FigS10<-ggplot(agg.Genus,aes(x=pH,y=value,fill=Genus)) +
+  geom_bar(stat = "identity", position="fill", width = 0.85) + 
+  scale_y_continuous(labels = percent_format())+
+  xlab("pH") +
+  ylab("Relative abundance") +
+  scale_fill_manual(values = c("grey26", "royalblue", "chartreuse3",  "red", "darkorange","gold", "darkgreen", "deepskyblue", "mediumorchid3","#89C5DA", "#DA5724", "#74D944", "#C84248", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030", "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "slateblue4", "tan4", "tomato4", "steelblue", "springgreen4", "snow4", "slategray2", "plum1", "yellow", "sienna", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "#FFFFFF", "#0000EE")) +
+  theme_bw() +
+  theme(
+    plot.background = element_blank()
+    ,panel.grid.major = element_blank()
+    ,panel.grid.minor = element_blank()
+    ,panel.background = element_blank()
+    ,axis.text.x  = element_text(angle=90, vjust=0.5, size=12)
+  )+
+  theme(axis.title.x = element_text(face="bold",size=14),
+        axis.text.x = element_text(angle=0, colour = "black", vjust=1, hjust = 1, size=14),
+        axis.text.y = element_text(colour = "black", size=14),
+        axis.title.y = element_text(face="bold", size=14),
+        legend.title = element_text(size=14),
+        legend.text = element_text(size = 12),
+        legend.position="right",
+        #Manipulating the facet features
+        strip.text.x = element_text(size=12, face="bold"),
+        strip.text.y = element_text(size=12, face="bold"),
+        strip.background = element_rect(colour="black")) + # Black rectangle around facet title
+  guides(fill = guide_legend(ncol = 1, title.hjust = 0.4))
+FigS10
+
+ggsave("/file path/Github/Figure 3/FigS10.pdf",width=8.5,height=6)
+```
+
+
+```{r Figure 3}
+
+#select significant OTUs over a mean of 1 and create bubble plot.
+
+SigTax_pH
+SigTax_pH_subset = filter_taxa(SigTax_pH, function(x) mean(x) > 1, TRUE)
+
+
+SigTax_pH_subset_genus_glom <- tax_glom(SigTax_pH_subset, taxrank = 'Genus')
+tax_table(SigTax_pH_subset_genus_glom) =gsub("D_5__", "", tax_table(SigTax_pH_subset_genus_glom))
+dat_SigTax_pH_subset_genus_glom <- psmelt(SigTax_pH_subset_genus_glom)
+
+dat_SigTax_pH_subset_genus_glom <- dat_SigTax_pH_subset_genus_glom[order(dat_SigTax_pH_subset_genus_glom$Genus),]
+dat_SigTax_pH_subset_genus_glom <- dat_SigTax_pH_subset_genus_glom[order(dat_SigTax_pH_subset_genus_glom$Phylum),]
+
+#check naming of Genera to make sure they are informative otherwise save, fix and replace
+write.table(dat_SigTax_pH_subset_genus_glom, file = "/file path/Github/Figure 3/sigGen.txt", sep = "\t")
+sigGen_rev <- read.table("/file path/Github/Figure 3/sigGen_rev.csv", sep = ",", header = TRUE)
+
+library(Rmisc)
+library(plotflow)
+gen_sum <- summarySE(sigGen_rev, measurevar="Abundance", groupvars=c("pH", "Genus", "Phylum"))
+gen_sum
+
+dodge <- position_dodge(width=0.5)  # move dots .01 to the left and right to avoid overlap
+
+gen_sum_2<-dplyr::arrange(gen_sum,Phylum,Genus,Abundance)
+
+gen_sum_2$Genus <- factor(gen_sum_2$Genus,levels=rev(unique(gen_sum_2$Genus)))
+
+
+
+d = ggplot(gen_sum_2, aes(x=pH, y=Genus, color=Phylum))+
+  geom_point(aes(size=Abundance))  +
+  scale_size_continuous(range = c(0.1,10)) + 
+  theme_bw() + # make background white
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())  # remove gridlines
+
+b= d+ ylab("Genus")
+
+palette <- c("grey26", "royalblue", "chartreuse3",  "red", "darkorange","cyan2", "darkgreen", "deepskyblue", "mediumorchid3","#89C5DA", "#DA5724", "#74D944", "#C84248", "#673770", "#D3D93E", "#38333E", "#508578", "#D7C1B1", "#689030",   "#AD6F3B", "#CD9BCD", "#D14285", "#6DDE88", "#652926", "#7FDCC0", "#8569D5", "#5E738F", "#D1A33D", "#8A7C64", "#599861", "blue4", "yellow1", "violetred", "#990000", "#99CC00", "#003300", "#00CCCC", "#9966CC", "#993366", "#990033", "#4863A0", "#000033", "#330000", "#00CC99", "#00FF33", "#00CCFF", "#FF9933", "#660066", "#FF0066", "#330000", "#CCCCFF", "#3399FF", "#66FFFF", "#B5EAAA","#FFE87C")
+
+a= b+ scale_fill_manual(name="Phylum", values = palette) + scale_colour_manual(values=palette)
+
+z= a+ theme_bw() +
+  theme(
+    plot.background = element_blank()
+    ,panel.grid.major = element_blank()
+    ,panel.grid.minor = element_blank()
+    ,panel.background = element_blank()
+    ,axis.text.x  = element_text(angle=90, vjust=0.5, size=12)
+  )+
+  theme(axis.title.x = element_text(face="bold",size=14),
+        axis.text.x = element_text(angle=0, colour = "black", vjust=1, hjust = 1, size=14),
+        axis.text.y = element_text(colour = "black", size=14),
+        axis.title.y = element_text(face="bold", size=14),
+        legend.title = element_text(size=14),
+        legend.text = element_text(size = 12),
+        legend.position="right",
+        #Manipulating the facet features
+        strip.text.x = element_text(size=12, face="bold"),
+        strip.text.y = element_text(size=12, face="bold"),
+        strip.background = element_rect(colour="black")) + # Black rectangle around facet title
+  guides(fill = guide_legend(ncol = 1, title.hjust = 0.4))
+
+Fig3= z+ guides(fill = guide_legend(reverse = TRUE, ncol=1)) + theme(legend.position="right")
+
+Fig3
+ggsave("/file path/Github/Figure 3/Fig3.pdf",width=10,height=14)
+```
+
+
